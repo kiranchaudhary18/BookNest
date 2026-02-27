@@ -10,7 +10,8 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { API_URL } from "../../constants/api";
-import { useAuthStore } from "../../store/authStore";
+import { useAuth } from "../../context/AuthContext";
+import { useBookStore } from "../../store/bookStore";
 import styles from "../../assets/styles/profile.styles";
 import ProfileHeader from "../../components/ProfileHeader";
 import LogoutButton from "../../components/LogoutButton";
@@ -21,61 +22,90 @@ import { sleep } from ".";
 import Loader from "../../components/Loader";
 
 export default function Profile() {
-  const [books, setBooks] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [deleteBookId, setDeleteBookId] = useState(null);
 
-  const { token } = useAuthStore();
+  const { token } = useAuth();
+  const {
+    userBooks: books,
+    userBooksLoading: isLoading,
+    fetchUserBooks,
+    deleteBookOptimistic,
+    restoreBook,
+    confirmDelete,
+    deletingBookIds,
+  } = useBookStore();
 
   const router = useRouter();
 
-  const fetchData = async () => {
+  useEffect(() => {
+    if (token) {
+      fetchUserBooks(token);
+    }
+  }, [token]);
+
+  const handleRefresh = async () => {
+    if (!token) return;
+    setRefreshing(true);
     try {
-      setIsLoading(true);
-
-      const response = await fetch(`${API_URL}/books/user`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || "Failed to fetch user books");
-
-      setBooks(data);
+      await fetchUserBooks(token);
+      await sleep(800);
     } catch (error) {
-      console.error("Error fetching data:", error);
-      Alert.alert("Error", "Failed to load profile data. Pull down to refresh.");
+      console.error("Error refreshing:", error);
     } finally {
-      setIsLoading(false);
+      setRefreshing(false);
     }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
   const handleDeleteBook = async (bookId) => {
-    try {
-      setDeleteBookId(bookId);
+    if (!token) {
+      Alert.alert("Error", "No authentication token available");
+      return;
+    }
 
+    try {
+      // Find the book to restore if delete fails
+      const bookToRestore = useBookStore.getState().userBooks.find((b) => b._id === bookId);
+
+      if (!bookToRestore) {
+        Alert.alert("Error", "Book not found");
+        return;
+      }
+
+      // Delete from UI immediately (optimistic update)
+      deleteBookOptimistic(bookId);
+
+      // Make API call to delete from backend
       const response = await fetch(`${API_URL}/books/${bookId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || "Failed to delete book");
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || "Failed to delete book");
+      }
 
-      setBooks(books.filter((book) => book._id !== bookId));
+      // API succeeded - confirm the deletion
+      confirmDelete(bookId);
       Alert.alert("Success", "Recommendation deleted successfully");
     } catch (error) {
+      console.error("Delete error:", error);
+      
+      // Restore the book to UI if delete failed
+      const bookToRestore = useBookStore.getState().userBooks.find((b) => b._id === bookId);
+      if (!bookToRestore && useBookStore.getState().books.some((b) => b._id === bookId)) {
+        // Find it in the books array and restore
+        const book = useBookStore.getState().books.find((b) => b._id === bookId);
+        if (book) restoreBook(book);
+      } else if (bookToRestore) {
+        restoreBook(bookToRestore);
+      }
+
       Alert.alert("Error", error.message || "Failed to delete recommendation");
-    } finally {
-      setDeleteBookId(null);
     }
   };
 
-  const confirmDelete = (bookId) => {
+  const confirmDeleteAction = (bookId) => {
     Alert.alert("Delete Recommendation", "Are you sure you want to delete this recommendation?", [
       { text: "Cancel", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: () => handleDeleteBook(bookId) },
@@ -94,8 +124,12 @@ export default function Profile() {
         <Text style={styles.bookDate}>{new Date(item.createdAt).toLocaleDateString()}</Text>
       </View>
 
-      <TouchableOpacity style={styles.deleteButton} onPress={() => confirmDelete(item._id)}>
-        {deleteBookId === item._id ? (
+      <TouchableOpacity 
+        style={[styles.deleteButton, deletingBookIds.has(item._id) && { opacity: 0.6 }]} 
+        onPress={() => confirmDeleteAction(item._id)}
+        disabled={deletingBookIds.has(item._id)}
+      >
+        {deletingBookIds.has(item._id) ? (
           <ActivityIndicator size="small" color={COLORS.primary} />
         ) : (
           <Ionicons name="trash-outline" size={20} color={COLORS.primary} />
@@ -118,13 +152,6 @@ export default function Profile() {
       );
     }
     return stars;
-  };
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await sleep(500);
-    await fetchData();
-    setRefreshing(false);
   };
 
   if (isLoading && !refreshing) return <Loader />;

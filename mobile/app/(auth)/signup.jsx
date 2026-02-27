@@ -13,7 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import COLORS from "../../constants/colors";
 import { useState } from "react";
 import { useRouter } from "expo-router";
-import { useAuthStore } from "../../store/authStore";
+import { useAuth } from "../../context/AuthContext";
 
 export default function Signup() {
   const [username, setUsername] = useState("");
@@ -21,14 +21,31 @@ export default function Signup() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  const { user, isLoading, register, token } = useAuthStore();
-
+  const { isLoading, signup } = useAuth();
   const router = useRouter();
 
   const handleSignUp = async () => {
-    const result = await register(username, email, password);
+    if (!username.trim() || !email.trim() || !password) {
+      Alert.alert("Error", "Please fill in all fields");
+      return;
+    }
 
-    if (!result.success) Alert.alert("Error", result.error);
+    if (username.trim().length < 3) {
+      Alert.alert("Error", "Username must be at least 3 characters");
+      return;
+    }
+
+    if (password.length < 6) {
+      Alert.alert("Error", "Password must be at least 6 characters");
+      return;
+    }
+
+    const result = await signup(username.trim(), email.trim(), password);
+
+    if (!result.success) {
+      Alert.alert("Signup Failed", result.error);
+    }
+    // Success: AuthContext will trigger navigation to home via router.replace()
   };
 
   return (
@@ -62,6 +79,7 @@ export default function Signup() {
                   value={username}
                   onChangeText={setUsername}
                   autoCapitalize="none"
+                  editable={!isLoading}
                 />
               </View>
             </View>
@@ -84,6 +102,7 @@ export default function Signup() {
                   onChangeText={setEmail}
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  editable={!isLoading}
                 />
               </View>
             </View>
@@ -105,10 +124,12 @@ export default function Signup() {
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
+                  editable={!isLoading}
                 />
                 <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
                   style={styles.eyeIcon}
+                  disabled={isLoading}
                 >
                   <Ionicons
                     name={showPassword ? "eye-outline" : "eye-off-outline"}
@@ -120,7 +141,11 @@ export default function Signup() {
             </View>
 
             {/* SIGNUP BUTTON */}
-            <TouchableOpacity style={styles.button} onPress={handleSignUp} disabled={isLoading}>
+            <TouchableOpacity 
+              style={[styles.button, isLoading && { opacity: 0.6 }]} 
+              onPress={handleSignUp} 
+              disabled={isLoading}
+            >
               {isLoading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
@@ -131,8 +156,11 @@ export default function Signup() {
             {/* FOOTER */}
             <View style={styles.footer}>
               <Text style={styles.footerText}>Already have an account?</Text>
-              <TouchableOpacity onPress={() => router.back()}>
-                <Text style={styles.link}>Login</Text>
+              <TouchableOpacity 
+                onPress={() => router.back()}
+                disabled={isLoading}
+              >
+                <Text style={[styles.link, isLoading && { opacity: 0.6 }]}>Login</Text>
               </TouchableOpacity>
             </View>
           </View>

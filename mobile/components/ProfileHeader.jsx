@@ -1,11 +1,11 @@
 import { View, Text } from "react-native";
-import { useAuthStore } from "../store/authStore";
+import { useAuth } from "../context/AuthContext";
 import { Image } from "expo-image";
 import styles from "../assets/styles/profile.styles";
 import { formatMemberSince } from "../lib/utils";
 
 export default function ProfileHeader() {
-  const { user } = useAuthStore();
+  const { user } = useAuth();
 
   if (!user) return null;
 

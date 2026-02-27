@@ -1,56 +1,75 @@
-import { SplashScreen, Stack } from "expo-router";
+import { SplashScreen, Stack, useRouter } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import SafeScreen from "../components/SafeScreen";
 import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
-import { useEffect, useRef } from "react";
-
-import { useAuthStore } from "../store/authStore";
+import { useEffect } from "react";
+import { AuthProvider, useAuth } from "../context/AuthContext";
 
 SplashScreen.preventAutoHideAsync();
 
-export default function RootLayout() {
-  const { checkAuth, isCheckingAuth, user, token } = useAuthStore();
-  const hasCheckedAuth = useRef(false);
-
+// Inner component that uses auth context
+function RootLayoutContent() {
+  const { isCheckingAuth, isSignedIn } = useAuth();
   const [fontsLoaded] = useFonts({
     "JetBrainsMono-Medium": require("../assets/fonts/JetBrainsMono-Medium.ttf"),
   });
+  const router = useRouter();
 
   useEffect(() => {
-    if (fontsLoaded) {
+    if (fontsLoaded && !isCheckingAuth) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded]);
+  }, [fontsLoaded, isCheckingAuth]);
 
+  // Navigate based on auth state when it changes
   useEffect(() => {
-    if (!hasCheckedAuth.current) {
-      hasCheckedAuth.current = true;
-      checkAuth();
+    if (!isCheckingAuth && fontsLoaded) {
+      if (isSignedIn) {
+        // Ensure we're on the tabs stack when signed in
+        router.replace("/(tabs)");
+      } else {
+        // Ensure we're on the auth stack when not signed in
+        router.replace("/(auth)");
+      }
     }
-  }, []);
+  }, [isSignedIn, isCheckingAuth, fontsLoaded, router]);
 
   // Show splash screen while checking auth or loading fonts
   if (isCheckingAuth || !fontsLoaded) {
     return null;
   }
 
-  // Determine initial route based on auth state
-  const isSignedIn = user && token;
-  const initialRouteName = isSignedIn ? "(tabs)" : "(auth)";
-
   return (
     <SafeAreaProvider>
       <SafeScreen>
         <Stack
-          screenOptions={{ headerShown: false }}
-          initialRouteName={initialRouteName}
+          screenOptions={{
+            headerShown: false,
+            animationEnabled: true,
+          }}
         >
-          <Stack.Screen name="(auth)" options={{ animationEnabled: false }} />
-          <Stack.Screen name="(tabs)" options={{ animationEnabled: false }} />
+          {/* Auth Stack */}
+          <Stack.Group screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="(auth)" />
+          </Stack.Group>
+
+          {/* Tabs Stack */}
+          <Stack.Group screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="(tabs)" />
+          </Stack.Group>
         </Stack>
       </SafeScreen>
       <StatusBar style="dark" />
     </SafeAreaProvider>
+  );
+}
+
+// Root layout with provider
+export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <RootLayoutContent />
+    </AuthProvider>
   );
 }

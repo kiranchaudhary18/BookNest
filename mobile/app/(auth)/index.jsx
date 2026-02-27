@@ -9,27 +9,33 @@ import {
   Platform,
   Alert,
 } from "react-native";
-import { Link } from "expo-router";
+import { useRouter } from "expo-router";
 import styles from "../../assets/styles/login.styles";
 import { useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import COLORS from "../../constants/colors";
-
-import { useAuthStore } from "../../store/authStore";
+import { useAuth } from "../../context/AuthContext";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const { isLoading, login, isCheckingAuth } = useAuthStore();
+  const { isLoading, login } = useAuth();
+  const router = useRouter();
 
   const handleLogin = async () => {
-    const result = await login(email, password);
+    if (!email.trim() || !password) {
+      Alert.alert("Error", "Please enter both email and password");
+      return;
+    }
 
-    if (!result.success) Alert.alert("Error", result.error);
+    const result = await login(email.trim(), password);
+
+    if (!result.success) {
+      Alert.alert("Login Failed", result.error);
+    }
+    // Success: AuthContext will trigger navigation to home via router.replace()
   };
-
-  if (isCheckingAuth) return null;
 
   return (
     <KeyboardAvoidingView
@@ -66,6 +72,7 @@ export default function Login() {
                   onChangeText={setEmail}
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  editable={!isLoading}
                 />
               </View>
             </View>
@@ -89,11 +96,13 @@ export default function Login() {
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
+                  editable={!isLoading}
                 />
 
                 <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
                   style={styles.eyeIcon}
+                  disabled={isLoading}
                 >
                   <Ionicons
                     name={showPassword ? "eye-outline" : "eye-off-outline"}
@@ -104,7 +113,11 @@ export default function Login() {
               </View>
             </View>
 
-            <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={isLoading}>
+            <TouchableOpacity 
+              style={[styles.button, isLoading && { opacity: 0.6 }]} 
+              onPress={handleLogin} 
+              disabled={isLoading}
+            >
               {isLoading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
@@ -115,11 +128,12 @@ export default function Login() {
             {/* FOOTER */}
             <View style={styles.footer}>
               <Text style={styles.footerText}>Don't have an account?</Text>
-              <Link href="/signup" asChild>
-                <TouchableOpacity>
-                  <Text style={styles.link}>Sign Up</Text>
-                </TouchableOpacity>
-              </Link>
+              <TouchableOpacity 
+                onPress={() => router.push("/signup")}
+                disabled={isLoading}
+              >
+                <Text style={[styles.link, isLoading && { opacity: 0.6 }]}>Sign Up</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>

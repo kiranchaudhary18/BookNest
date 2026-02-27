@@ -15,7 +15,8 @@ import { useRouter } from "expo-router";
 import styles from "../../assets/styles/create.styles";
 import { Ionicons } from "@expo/vector-icons";
 import COLORS from "../../constants/colors";
-import { useAuthStore } from "../../store/authStore";
+import { useAuth } from "../../context/AuthContext";
+import { useBookStore } from "../../store/bookStore";
 
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
@@ -30,9 +31,8 @@ export default function Create() {
   const [loading, setLoading] = useState(false);
 
   const router = useRouter();
-  const { token } = useAuthStore();
-
-  console.log(token);
+  const { token, user } = useAuth();
+  const { addBookOptimistic, confirmBook, removeOptimisticBook } = useBookStore();
 
   const pickImage = async () => {
     try {
@@ -59,7 +59,6 @@ export default function Create() {
         setImage(result.assets[0].uri);
 
         // if base64 is provided, use it
-
         if (result.assets[0].base64) {
           setImageBase64(result.assets[0].base64);
         } else {
@@ -78,7 +77,17 @@ export default function Create() {
   };
 
   const handleSubmit = async () => {
-    if (!title || !caption || !imageBase64 || !rating) {
+    if (!token) {
+      Alert.alert("Error", "You must be logged in to share a recommendation");
+      return;
+    }
+
+    if (!user) {
+      Alert.alert("Error", "User data not available");
+      return;
+    }
+
+    if (!title.trim() || !caption.trim() || !imageBase64 || !rating) {
       Alert.alert("Error", "Please fill in all fields");
       return;
     }
@@ -86,13 +95,34 @@ export default function Create() {
     try {
       setLoading(true);
 
-      // get file extension from URI or default to jpeg
+      // Generate temporary ID for optimistic update
+      const tempId = `temp_${Date.now()}`;
+
+      // Create optimistic book object
+      const optimisticBook = {
+        _id: tempId,
+        title: title.trim(),
+        caption: caption.trim(),
+        rating: parseInt(rating),
+        image: image, // Use local URI for immediate display
+        user: {
+          _id: user._id,
+          username: user.username,
+          profileImage: user.profileImage,
+        },
+        createdAt: new Date().toISOString(),
+      };
+
+      // Add book to UI immediately (optimistic update)
+      addBookOptimistic(optimisticBook);
+
+      // Prepare for API call
       const uriParts = image.split(".");
       const fileType = uriParts[uriParts.length - 1];
       const imageType = fileType ? `image/${fileType.toLowerCase()}` : "image/jpeg";
-
       const imageDataUrl = `data:${imageType};base64,${imageBase64}`;
 
+      // Make API call in background
       const response = await fetch(`${API_URL}/books`, {
         method: "POST",
         headers: {
@@ -100,23 +130,35 @@ export default function Create() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          title,
-          caption,
-          rating: rating.toString(),
+          title: title.trim(),
+          caption: caption.trim(),
+          rating: parseInt(rating),
           image: imageDataUrl,
         }),
       });
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.message || "Something went wrong");
 
-      Alert.alert("Success", "Your book recommendation has been posted!");
+      if (!response.ok) {
+        // API failed - remove optimistic book
+        removeOptimisticBook(tempId);
+        throw new Error(data.message || "Failed to create book");
+      }
+
+      // API succeeded - replace optimistic book with real book from server
+      confirmBook(tempId, data);
+
+      // Reset form
       setTitle("");
       setCaption("");
       setRating(3);
       setImage(null);
       setImageBase64(null);
-      router.push("/");
+
+      // Show success message
+      Alert.alert("Success", "Your book recommendation has been posted!", [
+        { text: "OK", onPress: () => router.replace("/(tabs)") },
+      ]);
     } catch (error) {
       console.error("Error creating post:", error);
       Alert.alert("Error", error.message || "Something went wrong");
@@ -129,11 +171,17 @@ export default function Create() {
     const stars = [];
     for (let i = 1; i <= 5; i++) {
       stars.push(
-        <TouchableOpacity key={i} onPress={() => setRating(i)} style={styles.starButton}>
+        <TouchableOpacity 
+          key={i} 
+          onPress={() => setRating(i)} 
+          style={styles.starButton}
+          disabled={loading}
+        >
           <Ionicons
             name={i <= rating ? "star" : "star-outline"}
             size={32}
             color={i <= rating ? "#f4b400" : COLORS.textSecondary}
+            style={loading ? { opacity: 0.6 } : {}}
           />
         </TouchableOpacity>
       );
@@ -171,6 +219,7 @@ export default function Create() {
                   placeholderTextColor={COLORS.placeholderText}
                   value={title}
                   onChangeText={setTitle}
+                  editable={!loading}
                 />
               </View>
             </View>
@@ -184,11 +233,15 @@ export default function Create() {
             {/* IMAGE */}
             <View style={styles.formGroup}>
               <Text style={styles.label}>Book Image</Text>
-              <TouchableOpacity style={styles.imagePicker} onPress={pickImage}>
+              <TouchableOpacity 
+                style={styles.imagePicker} 
+                onPress={pickImage}
+                disabled={loading}
+              >
                 {image ? (
-                  <Image source={{ uri: image }} style={styles.previewImage} />
+                  <Image source={{ uri: image }} style={[styles.previewImage, loading && { opacity: 0.6 }]} />
                 ) : (
-                  <View style={styles.placeholderContainer}>
+                  <View style={[styles.placeholderContainer, loading && { opacity: 0.6 }]}>
                     <Ionicons name="image-outline" size={40} color={COLORS.textSecondary} />
                     <Text style={styles.placeholderText}>Tap to select image</Text>
                   </View>
@@ -206,10 +259,15 @@ export default function Create() {
                 value={caption}
                 onChangeText={setCaption}
                 multiline
+                editable={!loading}
               />
             </View>
 
-            <TouchableOpacity style={styles.button} onPress={handleSubmit} disabled={loading}>
+            <TouchableOpacity 
+              style={[styles.button, loading && { opacity: 0.6 }]} 
+              onPress={handleSubmit} 
+              disabled={loading}
+            >
               {loading ? (
                 <ActivityIndicator color={COLORS.white} />
               ) : (

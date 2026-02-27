@@ -6,7 +6,8 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from "react-native";
-import { useAuthStore } from "../../store/authStore";
+import { useAuth } from "../../context/AuthContext";
+import { useBookStore } from "../../store/bookStore";
 
 import { Image } from "expo-image";
 import { useEffect, useState } from "react";
@@ -21,52 +22,32 @@ import Loader from "../../components/Loader";
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export default function Home() {
-  const { token } = useAuthStore();
-  const [books, setBooks] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-
-  const fetchBooks = async (pageNum = 1, refresh = false) => {
-    try {
-      if (refresh) setRefreshing(true);
-      else if (pageNum === 1) setLoading(true);
-
-      const response = await fetch(`${API_URL}/books?page=${pageNum}&limit=2`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || "Failed to fetch books");
-
-      // todo fix it later
-      // setBooks((prevBooks) => [...prevBooks, ...data.books]);
-
-      const uniqueBooks =
-        refresh || pageNum === 1
-          ? data.books
-          : Array.from(new Set([...books, ...data.books].map((book) => book._id))).map((id) =>
-              [...books, ...data.books].find((book) => book._id === id)
-            );
-
-      setBooks(uniqueBooks);
-
-      setHasMore(pageNum < data.totalPages);
-      setPage(pageNum);
-    } catch (error) {
-      console.log("Error fetching books", error);
-    } finally {
-      if (refresh) {
-        await sleep(800);
-        setRefreshing(false);
-      } else setLoading(false);
-    }
-  };
+  const { token } = useAuth();
+  const {
+    books,
+    booksLoading: loading,
+    booksRefreshing: refreshing,
+    booksPage: page,
+    booksHasMore: hasMore,
+    fetchBooks: storesFetchBooks,
+  } = useBookStore();
 
   useEffect(() => {
-    fetchBooks();
-  }, []);
+    if (token) {
+      storesFetchBooks(1, token);
+    }
+  }, [token]);
+
+  const fetchBooks = async (pageNum = 1, refresh = false) => {
+    if (!token) {
+      console.warn("No token available");
+      return;
+    }
+    await storesFetchBooks(pageNum, token, refresh);
+    if (refresh) {
+      await sleep(800);
+    }
+  };
 
   const handleLoadMore = async () => {
     if (hasMore && !loading && !refreshing) {
