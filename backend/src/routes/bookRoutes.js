@@ -13,8 +13,16 @@ router.post("/", protectRoute, async (req, res) => {
       return res.status(400).json({ message: "Please provide all fields" });
     }
 
+    // Handle data URL format by extracting base64 if needed
+    let imageToUpload = image;
+    if (image.startsWith("data:")) {
+      // Extract base64 string from data URL
+      const base64String = image.split(",")[1];
+      imageToUpload = base64String;
+    }
+
     // upload the image to cloudinary
-    const uploadResponse = await cloudinary.uploader.upload(image);
+    const uploadResponse = await cloudinary.uploader.upload(`data:image/jpeg;base64,${imageToUpload}`);
     const imageUrl = uploadResponse.secure_url;
 
     // save to the database
