@@ -2,12 +2,20 @@ import cron from "cron";
 import https from "https";
 
 const job = new cron.CronJob("*/14 * * * *", function () {
+  // Only send request if API_URL is properly configured
+  // This prevents ECONNREFUSED errors on undefined URLs
+  if (!process.env.API_URL || process.env.API_URL.trim() === "") {
+    console.log("Cron job: API_URL not configured, skipping keep-alive request");
+    return;
+  }
+
   https
-    .get(process.env.API_URL, (res) => {
+    .get(process.env.API_URL, { timeout: 5000 }, (res) => {
       if (res.statusCode === 200) console.log("GET request sent successfully");
       else console.log("GET request failed", res.statusCode);
     })
-    .on("error", (e) => console.error("Error while sending request", e));
+    .on("error", (e) => console.error("Error while sending request", e))
+    .setTimeout(5000);
 });
 
 export default job;
